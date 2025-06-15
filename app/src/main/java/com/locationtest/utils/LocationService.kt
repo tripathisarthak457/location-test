@@ -31,8 +31,8 @@ class LocationService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "location_service_channel"
-        private const val LOCATION_UPDATE_INTERVAL = 10000L // 10 seconds
-        private const val FASTEST_LOCATION_INTERVAL = 10000L // 10 seconds
+        private const val LOCATION_UPDATE_INTERVAL = 5000L // 5 seconds
+        private const val FASTEST_LOCATION_INTERVAL = 5000L // 5 seconds
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient

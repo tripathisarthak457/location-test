@@ -66,4 +66,12 @@ class LocationViewModel(
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
+    
+    fun onPermissionGranted() {
+        _uiState.value = _uiState.value.copy(
+            isLoading = true,
+            error = null
+        )
+        // This will trigger the location service to start fetching location
+    }
 }

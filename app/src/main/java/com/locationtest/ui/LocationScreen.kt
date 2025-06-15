@@ -2,6 +2,9 @@ package com.locationtest.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -23,30 +26,49 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.locationtest.ui.components.LocationDetailsScreen
 import com.locationtest.ui.components.NoInternetScreen
 import com.locationtest.utils.LocationUtils
+import com.locationtest.utils.PermissionStateMonitor
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
 fun LocationScreen(viewModel: LocationViewModel) {
     val context = LocalContext.current
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    
+    // Permission state monitor for real-time updates
+    val permissionMonitor = remember { PermissionStateMonitor(context) }
+    val hasLocationPermission by permissionMonitor.observeLocationPermissions().collectAsStateWithLifecycle(false)
     
     // Initialize network monitor
     LaunchedEffect(Unit) {
         viewModel.initializeNetworkMonitor(context)
     }
-    
-    val hasLocationPermission = ContextCompat.checkSelfPermission(
-        context, Manifest.permission.ACCESS_FINE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED || 
-    ContextCompat.checkSelfPermission(
-        context, Manifest.permission.ACCESS_COARSE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
 
-    // Animate between different states
+    // Permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        
+        if (locationGranted) {
+            // Trigger location service start or refresh
+            viewModel.onPermissionGranted()
+        }
+    }
+
+    // Notification permission launcher for Android 13+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Handle notification permission result if needed
+    }
+
+    // Animate between different states with real-time updates
     AnimatedContent(
         targetState = when {
             !hasLocationPermission -> "permission"
@@ -67,7 +89,23 @@ fun LocationScreen(viewModel: LocationViewModel) {
         label = "screenTransition"
     ) { targetState ->
         when (targetState) {
-            "permission" -> PermissionRequiredScreen()
+            "permission" -> PermissionRequiredScreen(
+                onRequestPermission = {
+                    val permissions = mutableListOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                        Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                    )
+                    
+                    // Add notification permission for Android 13+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    
+                    permissionLauncher.launch(permissions.toTypedArray())
+                },
+                permissionMonitor = permissionMonitor
+            )
             "no_internet" -> NoInternetScreen(
                 onRetry = { viewModel.retryConnection() }
             )
@@ -75,14 +113,21 @@ fun LocationScreen(viewModel: LocationViewModel) {
                 locationData = uiState.locationData!!,
                 connectionType = uiState.connectionType
             )
-            "loading" -> LoadingScreen()
+            "loading" -> LoadingScreen(viewModel = viewModel)
         }
     }
 }
 
 @Composable
-private fun PermissionRequiredScreen() {
+private fun PermissionRequiredScreen(
+    onRequestPermission: () -> Unit,
+    permissionMonitor: PermissionStateMonitor
+) {
     val context = LocalContext.current
+    var isRequesting by remember { mutableStateOf(false) }
+    
+    // Monitor background location permission for additional info
+    val hasBackgroundPermission = permissionMonitor.hasBackgroundLocationPermission()
     
     // Pulsing animation for the icon
     val pulseAnimation = rememberInfiniteTransition(label = "pulse")
@@ -95,6 +140,14 @@ private fun PermissionRequiredScreen() {
         ),
         label = "pulseScale"
     )
+
+    // Reset requesting state after delay
+    LaunchedEffect(isRequesting) {
+        if (isRequesting) {
+            delay(3000) // Give more time for permission dialog
+            isRequesting = false
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -134,7 +187,7 @@ private fun PermissionRequiredScreen() {
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "Location Permission Required",
+                    text = "Location Access Required",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -144,35 +197,71 @@ private fun PermissionRequiredScreen() {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "This app needs location permission to track your position. Please grant location access in your device settings.",
+                    text = "This app needs location permission to track your position accurately. We'll also request background location for continuous tracking even when the app is closed.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center,
                     lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Permission status indicators
+                PermissionStatusCard(
+                    title = "Location Access", 
+                    isGranted = permissionMonitor.hasLocationPermission(),
+                    description = "Required for basic location tracking"
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                PermissionStatusCard(
+                    title = "Background Location", 
+                    isGranted = hasBackgroundPermission,
+                    description = "For continuous tracking when app is closed"
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
                     onClick = {
-                        // This would typically open app settings
-                        // For now, we'll show a message to the user
+                        isRequesting = true
+                        onRequestPermission()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    enabled = !isRequesting
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        modifier = Modifier.size(24.dp)
-                    )
+                    if (isRequesting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Grant Permission",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Grant Permission",
+                        text = if (isRequesting) "Requesting Permissions..." else "Grant Permissions",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (isRequesting) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Please allow location access in the system dialog that appears",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center
                     )
                 }
             }
@@ -181,7 +270,55 @@ private fun PermissionRequiredScreen() {
 }
 
 @Composable
-private fun LoadingScreen() {
+private fun PermissionStatusCard(
+    title: String,
+    isGranted: Boolean,
+    description: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isGranted) 
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
+            else 
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Close,
+                contentDescription = null,
+                tint = if (isGranted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(24.dp)
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingScreen(viewModel: LocationViewModel) {
     val context = LocalContext.current
     
     // Rotating animation for location icon
@@ -277,7 +414,7 @@ private fun LoadingScreen() {
                 Button(
                     onClick = {
                         LocationUtils.getCurrentLocation(context) { locationData ->
-                            // This would trigger location update if available
+                            locationData?.let { viewModel.updateLocation(it) }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
