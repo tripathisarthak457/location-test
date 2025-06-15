@@ -12,15 +12,7 @@ import com.locationtest.model.LocationData
 
 object LocationUtils {
 
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private lateinit var context: Context
-
-    fun init(appContext: Context) {
-        context = appContext.applicationContext
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-    }
-
-    fun hasLocationPermission(): Boolean {
+    fun hasLocationPermission(context: Context): Boolean {
         return ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED || 
@@ -29,11 +21,13 @@ object LocationUtils {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    fun getCurrentLocation(callback: (LocationData?) -> Unit) {
-        if (!hasLocationPermission()) {
+    fun getCurrentLocation(context: Context, callback: (LocationData?) -> Unit) {
+        if (!hasLocationPermission(context)) {
             callback(null)
             return
         }
+        
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
         
         try {
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->

@@ -179,7 +179,7 @@ fun LocationScreen(viewModel: LocationViewModel) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
-                        LocationUtils.getCurrentLocation { locationData ->
+                        LocationUtils.getCurrentLocation(context) { locationData ->
                             locationData?.let { viewModel.updateLocation(it) }
                         }
                     },

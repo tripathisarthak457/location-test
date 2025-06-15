@@ -55,8 +55,6 @@ class MainActivity : ComponentActivity() {
         repository = LocationRepository()
         viewModel = LocationViewModel(repository)
 
-        LocationUtils.init(this)
-
         checkAndRequestPermissions()
 
         setContent {
@@ -125,6 +123,5 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Don't stop the service when activity is destroyed - we want it to keep running
     }
 }
