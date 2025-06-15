@@ -18,6 +18,7 @@ import com.locationtest.ui.LocationScreen
 import com.locationtest.ui.LocationViewModel
 import com.locationtest.ui.theme.LocationTestTheme
 import com.locationtest.utils.LocationService
+import com.locationtest.utils.LocationUtils
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -35,9 +36,32 @@ class MainActivity : ComponentActivity() {
         repository = LocationRepository()
         viewModel = LocationViewModel(repository)
 
+        // Start location service if permissions are already granted
+        if (LocationUtils.hasLocationPermission(this)) {
+            startLocationService()
+            requestInitialLocation()
+        }
+
         setContent {
             LocationTestTheme {
                 LocationScreen(viewModel)
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Restart service if permissions are available but service might be stopped
+        if (LocationUtils.hasLocationPermission(this)) {
+            startLocationService()
+        }
+    }
+
+    private fun requestInitialLocation() {
+        // Request current location immediately for faster initial load
+        LocationUtils.getCurrentLocation(this) { locationData ->
+            locationData?.let { 
+                viewModel.updateLocation(it)
             }
         }
     }
@@ -58,8 +82,19 @@ class MainActivity : ComponentActivity() {
     }
     
     fun startLocationService() {
-        val intent = Intent(this, LocationService::class.java)
-        startForegroundService(intent)
+        if (LocationUtils.hasLocationPermission(this)) {
+            val intent = Intent(this, LocationService::class.java)
+            try {
+                startForegroundService(intent)
+            } catch (e: Exception) {
+                // Fallback to regular service start if foreground fails
+                try {
+                    startService(intent)
+                } catch (e: Exception) {
+                    // Log error or handle service start failure
+                }
+            }
+        }
     }
 
     override fun onDestroy() {

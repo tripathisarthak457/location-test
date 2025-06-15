@@ -80,6 +80,11 @@ fun LocationScreen(viewModel: LocationViewModel) {
             activity?.let {
                 it.requestBatteryOptimizationExemption()
                 it.startLocationService()
+                
+                // Also request initial location immediately
+                LocationUtils.getCurrentLocation(context) { locationData ->
+                    locationData?.let { data -> viewModel.updateLocation(data) }
+                }
             }
             
             // Request background location permission if needed
@@ -341,6 +346,22 @@ private fun PermissionStatusCard(
 @Composable
 private fun LoadingScreen(viewModel: LocationViewModel) {
     val context = LocalContext.current
+    var refreshAttempts by remember { mutableStateOf(0) }
+    
+    // Auto-refresh after 15 seconds if no location is found
+    LaunchedEffect(Unit) {
+        delay(15000) // Wait 15 seconds
+        if (refreshAttempts < 3) { // Max 3 automatic attempts
+            refreshAttempts++
+            LocationUtils.getCurrentLocation(context) { locationData ->
+                locationData?.let { viewModel.updateLocation(it) }
+            }
+            
+            // Also restart the service
+            val activity = context as? com.locationtest.MainActivity
+            activity?.startLocationService()
+        }
+    }
     
     // Rotating animation for location icon
     val rotationAnimation = rememberInfiniteTransition(label = "rotation")
@@ -416,7 +437,11 @@ private fun LoadingScreen(viewModel: LocationViewModel) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Please wait while we get your precise location...",
+                    text = if (refreshAttempts > 0) {
+                        "Trying again... (Attempt ${refreshAttempts + 1}/4)"
+                    } else {
+                        "Please wait while we get your precise location..."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center
@@ -434,9 +459,15 @@ private fun LoadingScreen(viewModel: LocationViewModel) {
                 // Manual refresh option
                 Button(
                     onClick = {
+                        refreshAttempts++
+                        // Get current location
                         LocationUtils.getCurrentLocation(context) { locationData ->
                             locationData?.let { viewModel.updateLocation(it) }
                         }
+                        
+                        // Restart the service
+                        val activity = context as? com.locationtest.MainActivity
+                        activity?.startLocationService()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -454,6 +485,16 @@ private fun LoadingScreen(viewModel: LocationViewModel) {
                         text = "Refresh Location",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
+                    )
+                }
+                
+                if (refreshAttempts >= 3) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Having trouble finding your location? Make sure GPS is enabled and you're in an area with good signal.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center
                     )
                 }
             }
