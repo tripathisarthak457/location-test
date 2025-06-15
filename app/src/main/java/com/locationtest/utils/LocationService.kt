@@ -128,7 +128,12 @@ class LocationService : Service() {
                 val data = LocationData(
                     latitude = location.latitude, 
                     longitude = location.longitude, 
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    accuracy = if (location.hasAccuracy()) location.accuracy else null,
+                    altitude = if (location.hasAltitude()) location.altitude else null,
+                    bearing = if (location.hasBearing()) location.bearing else null,
+                    speed = if (location.hasSpeed()) location.speed else null,
+                    provider = location.provider
                 )
                 
                 currentLocationData = data

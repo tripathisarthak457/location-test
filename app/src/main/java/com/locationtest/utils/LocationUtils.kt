@@ -36,7 +36,12 @@ object LocationUtils {
                         LocationData(
                             latitude = it.latitude,
                             longitude = it.longitude,
-                            timestamp = System.currentTimeMillis()
+                            timestamp = System.currentTimeMillis(),
+                            accuracy = if (it.hasAccuracy()) it.accuracy else null,
+                            altitude = if (it.hasAltitude()) it.altitude else null,
+                            bearing = if (it.hasBearing()) it.bearing else null,
+                            speed = if (it.hasSpeed()) it.speed else null,
+                            provider = it.provider
                         )
                     )
                 } ?: callback(null)
@@ -45,6 +50,24 @@ object LocationUtils {
             }
         } catch (e: SecurityException) {
             callback(null)
+        }
+    }
+
+    fun getAccuracyDescription(accuracy: Float?): String {
+        return when {
+            accuracy == null -> "Unknown"
+            accuracy <= 5 -> "Excellent (±${accuracy.toInt()}m)"
+            accuracy <= 10 -> "Good (±${accuracy.toInt()}m)"
+            accuracy <= 50 -> "Fair (±${accuracy.toInt()}m)"
+            else -> "Poor (±${accuracy.toInt()}m)"
+        }
+    }
+
+    fun getSpeedInKmh(speedMs: Float?): String {
+        return if (speedMs != null && speedMs > 0) {
+            String.format("%.1f km/h", speedMs * 3.6)
+        } else {
+            "0 km/h"
         }
     }
 }

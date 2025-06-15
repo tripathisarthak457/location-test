@@ -1,21 +1,21 @@
 package com.locationtest.ui
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -23,15 +23,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.locationtest.ui.components.LocationDetailsScreen
+import com.locationtest.ui.components.NoInternetScreen
 import com.locationtest.utils.LocationUtils
-import java.text.SimpleDateFormat
-import java.util.*
+import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
 fun LocationScreen(viewModel: LocationViewModel) {
-    val location by viewModel.locationData.collectAsState()
     val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsState()
+    
+    // Initialize network monitor
+    LaunchedEffect(Unit) {
+        viewModel.initializeNetworkMonitor(context)
+    }
     
     val hasLocationPermission = ContextCompat.checkSelfPermission(
         context, Manifest.permission.ACCESS_FINE_LOCATION
@@ -39,6 +45,167 @@ fun LocationScreen(viewModel: LocationViewModel) {
     ContextCompat.checkSelfPermission(
         context, Manifest.permission.ACCESS_COARSE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
+
+    // Animate between different states
+    AnimatedContent(
+        targetState = when {
+            !hasLocationPermission -> "permission"
+            !uiState.isNetworkConnected -> "no_internet"
+            uiState.locationData != null -> "location_details"
+            else -> "loading"
+        },
+        transitionSpec = {
+            slideInHorizontally(
+                initialOffsetX = { if (targetState == "location_details") it else -it },
+                animationSpec = tween(600, easing = EaseInOutCubic)
+            ) + fadeIn(animationSpec = tween(600)) togetherWith
+            slideOutHorizontally(
+                targetOffsetX = { if (initialState == "location_details") -it else it },
+                animationSpec = tween(600, easing = EaseInOutCubic)
+            ) + fadeOut(animationSpec = tween(600))
+        },
+        label = "screenTransition"
+    ) { targetState ->
+        when (targetState) {
+            "permission" -> PermissionRequiredScreen()
+            "no_internet" -> NoInternetScreen(
+                onRetry = { viewModel.retryConnection() }
+            )
+            "location_details" -> LocationDetailsScreen(
+                locationData = uiState.locationData!!,
+                connectionType = uiState.connectionType
+            )
+            "loading" -> LoadingScreen()
+        }
+    }
+}
+
+@Composable
+private fun PermissionRequiredScreen() {
+    val context = LocalContext.current
+    
+    // Pulsing animation for the icon
+    val pulseAnimation = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by pulseAnimation.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = EaseInOut),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Location Permission",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .size(80.dp)
+                        .scale(pulseScale)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Location Permission Required",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "This app needs location permission to track your position. Please grant location access in your device settings.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Button(
+                    onClick = {
+                        // This would typically open app settings
+                        // For now, we'll show a message to the user
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Grant Permission",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingScreen() {
+    val context = LocalContext.current
+    
+    // Rotating animation for location icon
+    val rotationAnimation = rememberInfiniteTransition(label = "rotation")
+    val rotation by rotationAnimation.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing)
+        ),
+        label = "rotation"
+    )
+
+    // Pulsing animation for the card
+    val pulseAnimation = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by pulseAnimation.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = EaseInOut),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
 
     Box(
         modifier = Modifier
@@ -50,143 +217,74 @@ fun LocationScreen(viewModel: LocationViewModel) {
                         MaterialTheme.colorScheme.background
                     )
                 )
-            )
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Column(
+        Card(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxWidth()
+                .padding(24.dp)
+                .alpha(pulseAlpha),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
         ) {
-            // Header
-            Card(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .padding(40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = "Searching Location",
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = "Location",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Location Tracker",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // Location Status Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = when {
-                        !hasLocationPermission -> MaterialTheme.colorScheme.errorContainer
-                        location != null -> MaterialTheme.colorScheme.primaryContainer
-                        else -> MaterialTheme.colorScheme.secondaryContainer
-                    }
+                        .size(64.dp)
+                        .rotate(rotation)
                 )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    when {
-                        !hasLocationPermission -> {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = "Warning",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Location Permission Required",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Please grant location permissions to track your location",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        location != null -> {
-                            val currentLocation = location!!
-                            Text(
-                                text = "📍 Current Location",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            
-                            LocationInfoRow("Latitude", currentLocation.latitude.toString())
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LocationInfoRow("Longitude", currentLocation.longitude.toString())
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            val dateFormat = SimpleDateFormat("MMM dd, yyyy 'at' HH:mm:ss", Locale.getDefault())
-                            val formattedTime = dateFormat.format(Date(currentLocation.timestamp))
-                            LocationInfoRow("Last Updated", formattedTime)
-                        }
-                        else -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Fetching Location...",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Please wait while we get your current location",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            }
-            
-            // Refresh Button (only show if permissions are granted)
-            if (hasLocationPermission) {
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Finding Your Location",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Please wait while we get your precise location...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary
+                )
+
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // Manual refresh option
                 Button(
                     onClick = {
                         LocationUtils.getCurrentLocation(context) { locationData ->
-                            locationData?.let { viewModel.updateLocation(it) }
+                            // This would trigger location update if available
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
@@ -196,66 +294,11 @@ fun LocationScreen(viewModel: LocationViewModel) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Refresh Location",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
                 }
             }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            // Status indicator
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .background(
-                            color = when {
-                                !hasLocationPermission -> MaterialTheme.colorScheme.error
-                                location != null -> Color(0xFF4CAF50) // Green
-                                else -> Color(0xFFFF9800) // Orange
-                            },
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = when {
-                        !hasLocationPermission -> "Permission Denied"
-                        location != null -> "Location Active"
-                        else -> "Searching..."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                )
-            }
         }
-    }
-}
-
-@Composable
-private fun LocationInfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "$label:",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.weight(1f),
-            textAlign = TextAlign.End
-        )
     }
 }
