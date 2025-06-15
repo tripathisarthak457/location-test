@@ -27,26 +27,13 @@ class MainActivity : ComponentActivity() {
     
     private lateinit var viewModel: LocationViewModel
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
-        val coarseLocationGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
-        
-        if (fineLocationGranted || coarseLocationGranted) {
-            requestBatteryOptimizationExemption()
-            startLocationService()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
         // Initialize singleton repository
         repository = LocationRepository()
         viewModel = LocationViewModel(repository)
-
-        checkAndRequestPermissions()
 
         setContent {
             LocationTestTheme {
@@ -55,44 +42,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkAndRequestPermissions() {
-        val fineLocationPermission = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION
-        )
-        val coarseLocationPermission = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-
-        val permissionsToRequest = mutableListOf<String>()
-
-        if (fineLocationPermission != PackageManager.PERMISSION_GRANTED && 
-            coarseLocationPermission != PackageManager.PERMISSION_GRANTED) {
-            permissionsToRequest.addAll(listOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_BACKGROUND_LOCATION
-            ))
-        }
-
-        // Request notification permission for Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val notificationPermission = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.POST_NOTIFICATIONS
-            )
-            if (notificationPermission != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-
-        if (permissionsToRequest.isNotEmpty()) {
-            permissionLauncher.launch(permissionsToRequest.toTypedArray())
-        } else {
-            requestBatteryOptimizationExemption()
-            startLocationService()
-        }
-    }
-
-    private fun requestBatteryOptimizationExemption() {
+    fun requestBatteryOptimizationExemption() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val powerManager = getSystemService(POWER_SERVICE) as PowerManager
             if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -107,7 +57,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     
-    private fun startLocationService() {
+    fun startLocationService() {
         val intent = Intent(this, LocationService::class.java)
         startForegroundService(intent)
     }

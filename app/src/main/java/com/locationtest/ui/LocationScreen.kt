@@ -1,6 +1,8 @@
 package com.locationtest.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -48,7 +50,21 @@ fun LocationScreen(viewModel: LocationViewModel) {
         viewModel.initializeNetworkMonitor(context)
     }
 
-    // Permission launcher
+    // Background location permission launcher (Android 10+)
+    val backgroundLocationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Background location is optional for basic functionality
+    }
+
+    // Notification permission launcher for Android 13+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Notification permission is optional for basic functionality
+    }
+
+    // Permission launcher for basic location permissions
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -56,16 +72,21 @@ fun LocationScreen(viewModel: LocationViewModel) {
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         
         if (locationGranted) {
-            // Trigger location service start or refresh
+            // Trigger location service start and battery optimization
             viewModel.onPermissionGranted()
+            
+            // Start location service through MainActivity
+            val activity = context as? com.locationtest.MainActivity
+            activity?.let {
+                it.requestBatteryOptimizationExemption()
+                it.startLocationService()
+            }
+            
+            // Request background location permission if needed
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
         }
-    }
-
-    // Notification permission launcher for Android 13+
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        // Handle notification permission result if needed
     }
 
     // Animate between different states with real-time updates
@@ -91,18 +112,18 @@ fun LocationScreen(viewModel: LocationViewModel) {
         when (targetState) {
             "permission" -> PermissionRequiredScreen(
                 onRequestPermission = {
-                    val permissions = mutableListOf(
+                    val permissions = arrayOf(
                         Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION,
-                        Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                        Manifest.permission.ACCESS_COARSE_LOCATION
                     )
                     
-                    // Add notification permission for Android 13+
+                    // Launch permission request
+                    permissionLauncher.launch(permissions)
+                    
+                    // Handle notification permission separately for Android 13+
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
-                    
-                    permissionLauncher.launch(permissions.toTypedArray())
                 },
                 permissionMonitor = permissionMonitor
             )
