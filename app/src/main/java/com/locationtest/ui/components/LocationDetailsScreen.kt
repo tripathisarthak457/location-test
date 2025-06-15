@@ -50,9 +50,9 @@ fun LocationDetailsScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
+                        MaterialTheme.colorScheme.background,
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
-                        MaterialTheme.colorScheme.background
-                    )
+                        )
                 )
             )
     ) {
